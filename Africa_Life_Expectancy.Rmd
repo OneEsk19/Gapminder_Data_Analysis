@@ -1,0 +1,157 @@
+---
+title: "Life Expectancy in Africa"
+output: html_document
+---
+
+# Using the gapminder data to analyse life expectancy over time in Africa
+
+```{r include=FALSE}
+# install.packages("tidyverse")
+# install.packages("lubridate")
+# install.packages("gapminder")
+# library(lubridate)
+library(gapminder)
+library(dplyr)
+library(ggplot2)
+```
+
+Examine the dataset
+```{r}
+head(gapminder)
+dim(gapminder)
+colnames(gapminder)
+unique(gapminder$country)
+```
+
+Plot life expectancy in Africa over time
+```{r}
+africa_exp <- gapminder %>%
+   filter(continent=="Africa")
+
+ggplot(africa_exp, aes(x=year, y=lifeExp, color=country ))+
+      geom_line()
+```
+This is too much, maybe we should plot by region, but there is no region data here.
+
+Region data can be imported from another of my repos.
+```{bash}
+wget https://raw.githubusercontent.com/OneEsk19/Coronavirus/main/CountryList.csv
+```
+Read this data in
+```{r}
+geographic <- read.csv("CountryList.csv", header = T)
+colnames(geographic) <- c("country", "ISO.alpha3.Code", "Region", "Continent" )
+```
+
+Merge the two data sources
+```{r}
+all_data <- merge(gapminder, geographic, by="country")
+all_data <- all_data[,-2]
+```
+
+Subset Africa
+```{r}
+africa_exp <- all_data %>%
+      filter(Continent=="Africa")
+```
+... and plot by region
+
+'facet_grid' plot was tried, but results were confusing as the key was lumped together but the plots were in separate panels.
+Below is visually the best outcome, plots are saved to directory
+
+```{r}
+for (i in unique(africa_exp$Region)){
+      temp_plot = ggplot(africa_exp[africa_exp$Region==i,], aes(x=year, y=lifeExp, color=country )) + geom_line()+ ggtitle(i)
+      ggsave(temp_plot, file=paste(i,"_life_exp.png"), width=15, height=11, units="cm")
+}
+```
+
+To distribute the countries a little more evenly across the plots, I will re-assign some countries that are often considered part of 'Southern Africa' from where there are curretly described as 'Eastern Africa'  
+According to this: https://en.wikipedia.org/wiki/Regions_of_the_African_Union#East
+There should be the following changes:  
+|  Country  |  From  |  To |
+____________________________
+|  Burundi  |  Eastern  |  Middle   |
+|  Mauritania  |  Western  |  North  |
+|  Mozambique  |  Eastern  |  Southern  |
+|  Malawi  |  Eastern  |  Southern  |
+|  Zimbabwe  |  Eastern  |  Southern  |
+|  Zambia  |  Eastern  |  Southern  |
+|  Angola  |  Eastern  |  Southern  |
+
+```{r}
+southern<- c("Mozambique", "Malawi", "Zimbabwe", "Zambia", "Angola")
+middle<- "Burundi"
+northern <- "Mauritania"
+
+africa_exp <- 
+africa_exp %>%
+   mutate(Region = replace(Region, (africa_exp$country %in% southern), "Southern Africa")) %>%
+   mutate(Region = replace(Region, (africa_exp$country %in% middle), "Middle Africa")) %>%
+   mutate(Region = replace(Region, (africa_exp$country %in% northern), "Northern Africa"))
+```
+
+Lets also rename 'Middle Africa' to 'Central Africa'
+!This was quite trickier than i thought it would be because it was a factor variable and needed special syntax!
+```{r}
+levels(africa_exp$Region)[levels(africa_exp$Region)=="Middle Africa"] <- "Central Africa"
+```
+
+And replot
+```{r}
+for (i in unique(africa_exp$Region)){
+      temp_plot = ggplot(africa_exp[africa_exp$Region==i,], aes(x=year, y=lifeExp, color=country )) + geom_line()+ ggtitle(i)
+      ggsave(temp_plot, file=paste(i,"_life_exp.png"), width=15, height=11, units="cm")
+}
+```
+This is better!
+
+Some countries had very obvious drops in life expectancy after 1980, an example of which is Rwanda (Eastern Africa) which presumabl represents the genocide that occurred around this time.  
+Looking at this variabililty in life expectancy from this time.  
+Subset post 1980
+```{r}
+post1980 <- 
+africa_exp %>%
+   filter(year>=1980)
+```
+
+Calculate the variance in life expectancy for each country over this time period.
+```{r}
+life_exp_var_africa <- aggregate(post1980$lifeExp, by=list(post1980$country), FUN=sd)
+colnames(life_exp_var_africa) <- c("country", "LE_Variance")
+
+
+ggplot(life_exp_var_africa, aes(x=country, y=LE_Variance))+
+      geom_col()
+```
+High var only
+```{r}
+highvar <- 
+   life_exp_var_africa %>%
+   filter(LE_Variance >= 5) %>% 
+   select(country)
+
+highvar_countries <-
+   africa_exp %>%
+   filter(country %in% highvar$country)
+   
+   
+p <- ggplot(highvar_countries, aes(x=year, y=lifeExp, color=country)) + geom_line() + ggtitle("Life expectancy over time with high variance")
+
+ggsave(p, file="highVar_LE_Africa.png", width=15, height=11, units="cm")
+```
+It's interesting to see that Egypt, Eritrea, Gambia, and Niger have quite different curves to Botswana, Lesotho, Rwanda, Zambia and Zimbabwe.
+While the variance is high for all, the former group has experienced a large and continuos rise in life expectancy, whereas the latter group has experienced a rise, followed by a significant drop, followed by a rise.
+
+Botswana
+- Absolutely no idea why the life expectancy dipped from ~ 1990 - 2002
+Lesotho
+- Lots of leadership disputes and upheavals since early 90's
+Rwanada
+- genocide which killed up to 1M people in 1994
+Zambia
+- One party state from 1972-1991 perhaps caused a decline and/or increase in poverty
+Zimbabwe
+- Economic decline since 90's
+- HIV pandemic (This affected all of the Southern African region, and this is reflected in the graphic for this region)
+- Authoritarian regimes, wealth redistribution etc
